@@ -50,19 +50,35 @@ jobs:
 
       - name: 初始化流程冒烟（不写仓库根的 .env）
         run: |
-          # 用仓库内的临时路径，避免在 CI 里生成真 .env 干扰后面的守卫检查
-          uv run canvas init --check --env-path .tmp-init/case-a/.env || true
+          # 注意：配置未就绪时 init 会**故意**返回 1（表示"还差步骤"，供代理判断）。
+          # GitHub 的 run 步骤默认 `bash -e`，而 `cmd; rc=$?` 在 -e 下仍会终止脚本
+          # （bash 不会因为下一行读 $? 就放过失败）——必须写成 `cmd || rc=$?`。
+          # 用仓库内的临时路径，避免在 CI 里生成真 .env 干扰后面的守卫检查。
+
+          # 1) --check 必须只读：不创建任何文件
+          rc=0; uv run canvas init --check --env-path .tmp-init/case-a/.env || rc=$?
+          test "$rc" = "1" || { echo "✗ --check 在未配置时应返回 1（还差步骤），实际 $rc"; exit 1; }
           test ! -e .tmp-init/case-a/.env || { echo "✗ --check 不该创建文件"; exit 1; }
-          uv run canvas init --env-path .tmp-init/case-b/.env
+
+          # 2) 全新环境 init：应创建 .env 并返回 1（仍缺内容）
+          rc=0; uv run canvas init --env-path .tmp-init/case-b/.env || rc=$?
+          test "$rc" = "1" || { echo "✗ 未填凭据时 init 应返回 1，实际 $rc"; exit 1; }
           test -f .tmp-init/case-b/.env || { echo "✗ init 应创建 .env"; exit 1; }
           grep -q "CANVAS_HOST" .tmp-init/case-b/.env || { echo "✗ .env 缺少键"; exit 1; }
-          # 再跑一次必须保持不变（幂等、不覆盖）
+
+          # 3) 幂等：再跑一次内容不得变化（绝不许覆盖已有令牌）
           before=$(shasum .tmp-init/case-b/.env | cut -d' ' -f1)
-          uv run canvas init --env-path .tmp-init/case-b/.env >/dev/null
+          uv run canvas init --env-path .tmp-init/case-b/.env >/dev/null || true
           after=$(shasum .tmp-init/case-b/.env | cut -d' ' -f1)
           test "$before" = "$after" || { echo "✗ 重复 init 改动了 .env"; exit 1; }
+
+          # 4) 填好真实格式的凭据后应就绪（退出码 0）
+          printf 'CANVAS_HOST="https://demo.instructure.com"\nCANVAS_API_TOKEN="0123456789abcdefghijklmnopqrstuvwxyz"\n' > .tmp-init/case-c.env
+          uv run canvas init --check --env-path .tmp-init/case-c.env >/dev/null \
+            || { echo "✗ 配置齐全时 --check 应返回 0"; exit 1; }
+
           rm -rf .tmp-init
-          echo "✓ init 幂等、--check 只读"
+          echo "✓ init 幂等、--check 只读、就绪时退出码为 0"
 
       - name: 缺凭据时应当给出中文引导（而不是崩栈）
         run: |
@@ -90,3 +106,32 @@ jobs:
             | grep -vE '^LearningSummaries/(README|TEMPLATE)\.md$' && bad=1
           test "$bad" = "0" || { echo "✗ 有不该入库的文件被提交了"; exit 1; }
           echo "✓ 未提交 .env，也未提交课程资料/作业/学习总结内容"
+
+      - name: 检查没有泄露个人身份信息
+        run: |
+          # 教训：LICENSE 里曾误写真实姓名，而且我自己的脱敏自检漏掉了它
+          # （当时只按学号/域名/课号过滤，把"看起来正常的署名"放过了）。
+          # 现在把检查自动化。允许的署名是 GitHub 账号名 JackZhang144。
+          #
+          # 注意：本步骤自身带着这些关键词做匹配，所以必须排除 .github/，
+          # 否则会自己命中自己（第一次写就踩了这个坑）。
+          fail=0
+
+          # 1) 真实姓名（工作区 + 只扫用户可见内容，跳过 CI 定义）
+          hits=$(git ls-files | grep -v '^\.github/' | xargs grep -InE \
+            "JackZhang144|Zhang Yu|ZHANG YU|JackZhang144" 2>/dev/null || true)
+          if [ -n "$hits" ]; then echo "✗ 命中疑似真实姓名："; echo "$hits"; fail=1; fi
+
+          # 2) 学号 / 学校专属域名 / 真实课号（示例一律用 CS101、12345 这类虚构值）
+          hits2=$(git ls-files | grep -v '^\.github/' | xargs grep -InE \
+            "00000000|example|CS101|CS102|CS103|CS104|CS105|CS106" 2>/dev/null || true)
+          if [ -n "$hits2" ]; then echo "✗ 命中个人/学校标识："; echo "$hits2"; fail=1; fi
+
+          # 3) LICENSE 的版权行只允许账号名
+          if git ls-files | grep -v '^\.github/' | xargs grep -InE \
+            'Copyright \(c\).*(Zhang|Yu)' 2>/dev/null | grep -v "JackZhang144"; then
+            echo "✗ LICENSE 署名不是预期的账号名"; fail=1
+          fi
+
+          test "$fail" = "0" || exit 1
+          echo "✓ 未发现真实姓名、学号、学校域名或真实课号"
