@@ -133,8 +133,13 @@ jobs:
           if [ -n "$hits" ]; then echo "✗ 命中疑似个人邮箱："; echo "$hits"; fail=1; fi
 
           # 3) 文档与示例里不得出现真实的校内主机名（示例一律用 *.example.edu / demo.*）
+          #    放行「官方文档地址」与「明显是占位符」的形态，避免误报：
+          #    instructure.com = 官方文档；xxx / your-school / yourschool / demo / example / test 都是占位
           hits2=$(git ls-files | grep -v '^\.github/' | xargs grep -InoE \
-            '(canvas|elearning|lms|moodle)\.(example|edu|ac)\.[a-z.]+' 2>/dev/null || true)
+            '(canvas|elearning|lms|moodle)\.[a-z0-9-]+\.[a-z.]+' 2>/dev/null \
+            | grep -v 'instructure\.com' \
+            | grep -viE '\.(example|demo|test|invalid|localhost)\.' \
+            | grep -viE '\.(xxx|your|yourschool|your-school|your_school|school|example)[a-z-]*\.' || true)
           if [ -n "$hits2" ]; then echo "✗ 命中疑似真实校内域名："; echo "$hits2"; fail=1; fi
 
           test "$fail" = "0" || exit 1
