@@ -1,0 +1,76 @@
+name: tests
+
+# 全部测试都是离线的：不联网、不需要 Canvas 令牌。
+# 所以任何人 fork 之后都能直接看到绿灯，不用配任何 secret。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.12"]
+        exclude:
+          # macOS 上跑一份就够，不必铺满矩阵
+          - os: macos-latest
+            python-version: "3.10"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: 同步依赖
+        run: uv sync --dev
+
+      - name: 语法自检
+        run: uv run python -m py_compile scripts/*.py tests/*.py
+
+      - name: 离线测试（不联网、无需令牌）
+        run: uv run --dev pytest -q
+
+      - name: 端到端冒烟（假 Canvas 服务器）
+        run: uv run python tests/test_smoke_offline.py
+
+      - name: CLI 可用性
+        run: |
+          uv run canvas --help
+          uv run canvas-summary --help
+          uv run canvas-submit --help
+
+      - name: 缺凭据时应当给出中文引导（而不是崩栈）
+        run: |
+          set +e
+          out=$(uv run canvas doctor 2>&1)
+          code=$?
+          set -e
+          echo "$out"
+          test "$code" = "2" || { echo "期望退出码 2，实际 $code"; exit 1; }
+          echo "$out" | grep -q "CANVAS_API_TOKEN" || { echo "提示里应说明缺哪个变量"; exit 1; }
+          echo "$out" | grep -q "Access Token" || { echo "提示里应告诉用户去哪拿令牌"; exit 1; }
+
+      - name: 检查 skills 两份镜像一致
+        run: diff -r .dsh/skills .agents/skills
+
+      - name: 检查没有误提交敏感文件
+        run: |
+          # 允许 CourseFiles/README.md、Assignments/README.md、LearningSummaries/README.md|TEMPLATE.md
+          # 其余一律不该入库：.env、以及任何在第一层子目录里的真实课程内容/作业
+          bad=0
+          git ls-files | grep -E '(^|/)\.env$' && bad=1
+          git ls-files | grep -E '^CourseFiles/.+/' | grep -v '^CourseFiles/README\.md$' && bad=1
+          git ls-files | grep -E '^Assignments/.+/' | grep -v '^Assignments/README\.md$' && bad=1
+          git ls-files | grep -E '^LearningSummaries/.+/' \
+            | grep -vE '^LearningSummaries/(README|TEMPLATE)\.md$' && bad=1
+          test "$bad" = "0" || { echo "✗ 有不该入库的文件被提交了"; exit 1; }
+          echo "✓ 未提交 .env，也未提交课程资料/作业/学习总结内容"
