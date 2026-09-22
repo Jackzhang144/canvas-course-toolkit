@@ -144,7 +144,9 @@ skills 放在 **`.dsh/skills/<skill-name>/SKILL.md`**，并**镜像**一份到 *
   （说明"何时使用"，**带上触发词**，如"下载课件/同步资料/看作业截止/提交作业"）；
 - 正文写逐步指令 + 校验步骤，**不要重复仓库级约定**，引用本文件 §号即可；
 - **单一职责**：一个 skill 只做一个工作流；
-- 需要凭据时先检查 `CANVAS_HOST`/`CANVAS_API_TOKEN` 是否已配置，缺失就引导配置（§3），不得假设已配置；
+- 需要凭据时**先跑 `uv run canvas init --check`**（只读、不联网，由 `setup_check.check_setup()`
+  给出状态），不是 `ready` 就交给 `canvas-init-setup` skill 引导配置，**不得假设已配置、
+  也不得在未就绪时继续执行下载/提交**；
 - 涉及网络副作用（上传/提交/删除）前，先展示将执行的动作并请求确认。
 
 仓库级规则（对任何 skill 一律生效）：
@@ -157,16 +159,21 @@ skills 放在 **`.dsh/skills/<skill-name>/SKILL.md`**，并**镜像**一份到 *
 ## 7. 共享助手（scripts/，已落地）
 
 ```bash
+uv run canvas init [--check]         # 首次初始化：生成 .env / 只检测状态（只读）
 uv run canvas doctor                 # 自检：凭据/连通性/权限
 uv run canvas courses                # 我的课程（自动翻页）
 uv run canvas files <course_id>      # 课程文件清单
 uv run canvas download <course_id>   # 下载到 CourseFiles/（自动写 MANIFEST）
 uv run canvas manifest --all         # 为所有课程写/更新 MANIFEST.md
-uv run canvas deadlines --days 14    # 近期截止
+uv run canvas deadlines --days 14    # 近期截止（带"交没交"状态）
 uv run canvas-summary <course_id>    # 生成课程 README + syllabus/pages/announcements
 uv run canvas-summary --index        # 重建顶层 COURSES.md
 uv run canvas-submit <course_id> <assignment_id> [dir] [--confirm]
 ```
+
+- `setup_check.py`：初始化状态检测（纯本地、不联网）。`check_setup()` 的 `state`
+  是「还差什么」的唯一权威判断，**任何 skill 在动手前都应据此决定是否先引导配置**；
+  `ensure_env_file()` 幂等且绝不覆盖已有 `.env` 的值。
 
 - `canvas_client.py`：**唯一网络入口**。`get_json` / `get_all`（翻页）/ `download_file`（幂等）/
   `upload_file` + `submit_online_upload`（两步提交）/ `write_manifest`。

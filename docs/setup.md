@@ -63,13 +63,27 @@ pip install -r requirements.txt  # 或 pip install requests
 ⚠️ 这串令牌等于你的密码：不要贴到聊天群、不要提交到 git、不要截图。万一泄露，
 回同一个页面点该令牌右边的 **Delete/Revoke** 立刻吊销，再生成新的。
 
-## 4. 填配置
+## 4. 填配置（推荐用 init 命令）
 
 ```bash
-cp .env.example .env
+uv run canvas init            # 生成 .env（已存在则一字节不动），告诉你还差哪一步
+uv run canvas init --check    # 只检测状态，不改任何文件
 ```
 
-编辑 `.env`：
+`canvas init` 是**幂等**的：文件不存在才创建（权限 600）；已存在就不覆盖你的令牌；
+只缺 `CANVAS_HOST`/`CANVAS_API_TOKEN` 时也只追加这两行。
+`--check` 会给出一个明确状态，照着它的"下一步"做即可：
+
+| 状态 | 意思 |
+|---|---|
+| `no_env` | 还没 `.env`，跑 `uv run canvas init` |
+| `missing_host` | `CANVAS_HOST` 空着，填学校域名 |
+| `host_looks_wrong` | host 里带了 `/api/v1` 或具体页面路径，只留域名 |
+| `missing_token` | `CANVAS_API_TOKEN` 空着，按上一节拿令牌 |
+| `token_placeholder` | 令牌位还是模板文字（常见：复制了 `.env.example` 的说明） |
+| `ready` | 配置齐全，去跑第 5 步 |
+
+也可以手工来：`cp .env.example .env` 后编辑
 
 ```ini
 CANVAS_HOST="https://你的学校域名"     # 形如 https://xxx.instructure.com 或 https://canvas.xxx.edu
@@ -80,6 +94,9 @@ CANVAS_TERM=""                        # 可留空
 - `CANVAS_HOST` 写域名就行，不写 `https://` 也能识别，但带上更保险；
 - `.env` 已被 `.gitignore` 忽略，**不会被提交**；不想用文件也可以直接
   `export CANVAS_HOST=... CANVAS_API_TOKEN=...`。
+
+> 用 AI 代理的话，直接说"初始化一下"或"我的 Canvas 还没配好"，
+> 它会用 `canvas-init-setup` skill 走同一套检测与引导。
 
 ## 5. 自检
 

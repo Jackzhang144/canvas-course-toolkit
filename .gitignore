@@ -55,6 +55,7 @@ Thumbs.db
 # ===== 运行时缓存 / 临时 =====
 *.tmp
 *.part
+.tmp-init/
 *.log
 *.pid
 .pid

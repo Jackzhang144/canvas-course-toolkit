@@ -48,6 +48,22 @@ jobs:
           uv run canvas-summary --help
           uv run canvas-submit --help
 
+      - name: 初始化流程冒烟（不写仓库根的 .env）
+        run: |
+          # 用仓库内的临时路径，避免在 CI 里生成真 .env 干扰后面的守卫检查
+          uv run canvas init --check --env-path .tmp-init/case-a/.env || true
+          test ! -e .tmp-init/case-a/.env || { echo "✗ --check 不该创建文件"; exit 1; }
+          uv run canvas init --env-path .tmp-init/case-b/.env
+          test -f .tmp-init/case-b/.env || { echo "✗ init 应创建 .env"; exit 1; }
+          grep -q "CANVAS_HOST" .tmp-init/case-b/.env || { echo "✗ .env 缺少键"; exit 1; }
+          # 再跑一次必须保持不变（幂等、不覆盖）
+          before=$(shasum .tmp-init/case-b/.env | cut -d' ' -f1)
+          uv run canvas init --env-path .tmp-init/case-b/.env >/dev/null
+          after=$(shasum .tmp-init/case-b/.env | cut -d' ' -f1)
+          test "$before" = "$after" || { echo "✗ 重复 init 改动了 .env"; exit 1; }
+          rm -rf .tmp-init
+          echo "✓ init 幂等、--check 只读"
+
       - name: 缺凭据时应当给出中文引导（而不是崩栈）
         run: |
           set +e

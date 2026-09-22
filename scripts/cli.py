@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """Canvas 命令行工具（其他 skills / 脚本都复用这里的子命令）。
 
+    uv run canvas init              首次初始化：生成 .env 并告诉你还差什么
+    uv run canvas init --check      只看状态，不创建/不修改任何文件
     uv run canvas doctor            自检：凭据、连通性、权限
     uv run canvas whoami            我是谁
     uv run canvas courses           我的课程（自动翻页）
@@ -21,6 +23,8 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from scripts import setup_check as sc
+
 from scripts import canvas_client as cc
 
 
@@ -36,6 +40,44 @@ def human_size(num):
             return "%.0f%s" % (num, unit) if unit == "B" else "%.1f%s" % (num, unit)
         num /= 1024.0
     return str(num)
+
+
+def cmd_init(check_only=False, env_path=None):
+    """首次初始化：确保 .env 存在，并把「还差什么」说清楚。
+
+    **不联网**，所以即使令牌还没填也能安全反复运行。
+    退出码：0 = 配置齐全；1 = 还差步骤（调用方/AI 代理据此决定是否引导用户）。
+    """
+    env_path = env_path or sc.ENV_PATH
+
+    if not check_only:
+        action, path, message = sc.ensure_env_file(env_path)
+        print(message)
+        if action == "kept":
+            print("（提示：如需重新开始，先手动备份并删除该文件再运行 init）")
+
+    status = sc.check_setup(env_path)
+    labels = {
+        "no_env": "还没有配置文件",
+        "missing_host": "缺 Canvas 地址",
+        "missing_token": "缺访问令牌",
+        "token_placeholder": "令牌还是占位符",
+        "host_looks_wrong": "Canvas 地址看起来不对",
+        "ready": "已就绪",
+    }
+    print("\n初始化状态：%s（%s）" % (labels[status["state"]], status["state"]))
+    print("说明：%s" % status["detail"])
+    print("\n下一步：")
+    for step in status["next_steps"]:
+        print("  - %s" % step)
+
+    if status["state"] == "ready":
+        print("\n配置已齐全，接着跑：uv run canvas doctor")
+        return 0
+
+    print("\n按 docs/setup.md 的「第 3 步：拿到你的访问令牌」操作即可。")
+    print("填好后重跑：uv run canvas init --check")
+    return 1
 
 
 def cmd_doctor(client):
@@ -244,6 +286,12 @@ def build_parser():
         prog="canvas", description="Canvas 命令行工具（凭据见 .env / 环境变量）")
     sub = parser.add_subparsers(dest="cmd")
 
+    p_init = sub.add_parser("init", help="首次初始化：生成 .env 并报告还差什么")
+    p_init.add_argument("--check", dest="check_only", action="store_true",
+                        help="只检测状态，不创建/不修改任何文件")
+    p_init.add_argument("--env-path", default=None,
+                        help="指定 .env 位置（默认仓库根的 .env；测试/多实例时用）")
+
     sub.add_parser("doctor", help="自检凭据、连通性与权限")
     sub.add_parser("whoami", help="打印当前账号")
 
@@ -274,6 +322,10 @@ def main(argv=None):
     if not args.cmd:
         parser.print_help()
         return 0
+
+    # init 必须在构造 client 之前处理：它本来就是在"凭据还没有"时用的
+    if args.cmd == "init":
+        return cmd_init(check_only=args.check_only, env_path=args.env_path)
 
     try:
         client = cc.CanvasClient()

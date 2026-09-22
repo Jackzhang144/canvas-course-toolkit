@@ -10,8 +10,9 @@ whenToUse: 当用户问「这周要交什么」「最近有什么作业」「XX 
 
 ## 步骤
 
-1. **确认环境**：`CANVAS_HOST`/`CANVAS_API_TOKEN` 缺失就按 `AGENTS.md` §3 引导配置（见 `docs/setup.md`）。
-   网络异常时先跑 `uv run canvas doctor` 定位问题，不要盲目重试。
+1. **确认环境**：先跑 `uv run canvas init --check`（只读、不联网）。
+   状态不是 `ready` 就改用 `canvas-init-setup` skill 引导用户配好凭据，不要急着查作业。
+   网络异常时用 `uv run canvas doctor` 定位问题，不要盲目重试。
 
 2. **列截止**：`uv run canvas deadlines --days <N>`
    - 默认 14 天；用户说"这周"就用 `--days 7`，"这个月"用 `--days 30`。

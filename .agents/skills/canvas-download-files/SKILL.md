@@ -11,9 +11,10 @@ whenToUse: 当用户说「下载课件」「同步课程资料」「把课程资
 
 ## 步骤
 
-1. **确认环境**：检查 `CANVAS_HOST` 与 `CANVAS_API_TOKEN` 是否已配置（环境变量或仓库根 `.env`）。
-   缺失就按 `AGENTS.md` §3 引导用户配置，不要假设已配置。
-   用 `uv run canvas doctor` 一次性验证凭据、连通性与权限；401 时提示用户重新生成令牌，不要反复重试。
+1. **确认环境**：先跑 `uv run canvas init --check`（只读、不联网）。
+   状态不是 `ready` 就**不要继续下载**，改用 `canvas-init-setup` skill 引导用户配好凭据。
+   已就绪时用 `uv run canvas doctor` 一次性验证连通性与权限；
+   401 提示用户重新生成令牌，不要反复重试。
 
 2. **定位课程**：优先读仓库根 `COURSES.md`（课程 ID → 目录名）。
    ID 不确定或有新课时用 `uv run canvas courses` 列出（`--all-terms` 含历史课程）。

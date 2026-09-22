@@ -10,7 +10,9 @@ whenToUse: 当用户说「提交作业」「把这份交上去」「上传到 Ca
 
 ## 前置检查（缺一不可）
 
-1. 凭据已配置（`AGENTS.md` §3）；`uv run canvas doctor` 通过。
+1. 配置齐全：先跑 `uv run canvas init --check`（只读、不联网）。
+   状态不是 `ready` 就改用 `canvas-init-setup` skill 引导用户配好凭据——
+   **凭据没配好之前绝不尝试提交**；就绪后再用 `uv run canvas doctor` 验证连通性。
 2. 待提交文件确实是**最终版**：`solution.pdf` / 源码 / 报告已生成、能打开、页数正确。
 3. 该作业**支持在线提交**：`client.assignment(course_id, assignment_id)` 的 `submission_types` 里
    必须含 `online_upload`。只有 `on_paper` / `none` / `external_tool` 时不要硬传，先看作业说明。

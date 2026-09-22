@@ -258,6 +258,100 @@ def test_opening_description_when_no_course_description_heading():
     assert "CILOs" not in overview, overview
 
 
+def test_setup_check_states():
+    """初始化状态检测：每种「还差什么」都要能被准确识别。"""
+    from scripts import setup_check as sc
+
+    assert sc.check_setup(env={})["state"] == "missing_host"
+    assert sc.check_setup(env={"CANVAS_HOST": "", "CANVAS_API_TOKEN": "x"})["state"] == "missing_host"
+    assert sc.check_setup(env={"CANVAS_HOST": "https://a.edu"})["state"] == "missing_token"
+    assert sc.check_setup(env={"CANVAS_HOST": "https://a.edu",
+                               "CANVAS_API_TOKEN": "<在这里粘贴你的令牌>"})["state"] \
+        == "token_placeholder"
+    assert sc.check_setup(env={"CANVAS_HOST": "https://a.edu/api/v1",
+                               "CANVAS_API_TOKEN": "a" * 40})["state"] == "host_looks_wrong"
+    assert sc.check_setup(env={"CANVAS_HOST": "https://a.edu",
+                               "CANVAS_API_TOKEN": "a" * 40})["state"] == "ready"
+
+    # 文件不存在时是 no_env
+    with tempfile.TemporaryDirectory() as tmp:
+        missing = os.path.join(tmp, ".env")
+        status = sc.check_setup(env_path=missing)
+        assert status["state"] == "no_env"
+        assert status["next_steps"]
+
+
+def test_init_never_overwrites_existing_env():
+    """最关键的一条：init 绝不能覆盖用户已经填好的令牌。
+
+    令牌只显示一次，被覆盖就得重新生成 —— 那是不可接受的破坏。
+    """
+    from scripts import setup_check as sc
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, ".env")
+        original = 'CANVAS_HOST="https://mine.edu"\nCANVAS_API_TOKEN="my-real-token-1234567890"\n'
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(original)
+
+        action, _, message = sc.ensure_env_file(path)
+        assert action == "kept", action
+        assert "未做任何改动" in message
+        with open(path, encoding="utf-8") as fh:
+            assert fh.read() == original, "已存在的 .env 被改动了！"
+
+        # 缺键时只追加，不动已有值
+        partial = os.path.join(tmp, "partial.env")
+        with open(partial, "w", encoding="utf-8") as fh:
+            fh.write('CANVAS_TERM="2025Fall"\n')
+        action2, _, msg2 = sc.ensure_env_file(partial)
+        assert action2 == "completed", action2
+        content = open(partial, encoding="utf-8").read()
+        assert 'CANVAS_TERM="2025Fall"' in content
+        assert "CANVAS_HOST" in content and "CANVAS_API_TOKEN" in content
+        assert "其余内容未改动" in msg2
+
+
+def test_init_creates_missing_parent_directory():
+    """父目录不存在时也要能创建（曾直接抛 FileNotFoundError）。
+
+    真机场景：多实例/多份配置时把 .env 放到子目录里，或用户指定的路径还没建。
+    """
+    from scripts import setup_check as sc
+
+    with tempfile.TemporaryDirectory() as tmp:
+        nested = os.path.join(tmp, "conf", "deep", ".env")
+        action, path, _ = sc.ensure_env_file(nested)
+        assert action == "created"
+        assert os.path.isfile(nested)
+        # 之后再跑必须保持不变
+        action2, _, _ = sc.ensure_env_file(nested)
+        assert action2 == "kept"
+
+
+def test_init_creates_env_with_restrictive_permissions():
+    """新建的 .env 含令牌，权限应当是 600（只有本人可读）。"""
+    from scripts import setup_check as sc
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, ".env")
+        action, _, _ = sc.ensure_env_file(path)
+        assert action == "created"
+        assert os.path.exists(path)
+        if os.name == "posix":
+            assert (os.stat(path).st_mode & 0o077) == 0, "权限过宽，别人可能读到令牌"
+
+
+def test_host_problem_detection():
+    from scripts import setup_check as sc
+
+    assert sc.host_problem("https://a.edu/api/v1") is not None
+    assert sc.host_problem("https://a.edu/courses/1") is not None
+    assert sc.host_problem("https://a.edu/profile/settings") is not None
+    assert sc.host_problem("https://a.instructure.com") is None
+    assert sc.host_problem("") is None
+
+
 # --------------------------------------------------------------------------- #
 # 无 pytest 时的兜底 runner
 # --------------------------------------------------------------------------- #
