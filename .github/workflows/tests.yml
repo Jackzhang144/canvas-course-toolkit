@@ -109,29 +109,33 @@ jobs:
 
       - name: 检查没有泄露个人身份信息
         run: |
-          # 教训：LICENSE 里曾误写真实姓名，而且我自己的脱敏自检漏掉了它
+          # 起因：LICENSE 里曾误写真实姓名，而脱敏自检漏掉了它
           # （当时只按学号/域名/课号过滤，把"看起来正常的署名"放过了）。
-          # 现在把检查自动化。允许的署名是 GitHub 账号名 JackZhang144。
           #
-          # 注意：本步骤自身带着这些关键词做匹配，所以必须排除 .github/，
-          # 否则会自己命中自己（第一次写就踩了这个坑）。
+          # 本步骤**不硬编码任何人的姓名/学号/学校域名**——否则等于把要保护的信息
+          # 写进公开仓库（这正是本次踩到的第二个坑）。这里只用通用规则：
+          #   1) 署名只允许 GitHub 账号名（noreply 邮箱形式）
+          #   2) 常见学生邮箱域名与"Copyright ... 非账号名"的署名
+          # 仓库特有的敏感关键词请放在本地脚本里，不要写进 CI。
           fail=0
 
-          # 1) 真实姓名（工作区 + 只扫用户可见内容，跳过 CI 定义）
-          hits=$(git ls-files | grep -v '^\.github/' | xargs grep -InE \
-            "JackZhang144|Zhang Yu|ZHANG YU|JackZhang144" 2>/dev/null || true)
-          if [ -n "$hits" ]; then echo "✗ 命中疑似真实姓名："; echo "$hits"; fail=1; fi
-
-          # 2) 学号 / 学校专属域名 / 真实课号（示例一律用 CS101、12345 这类虚构值）
-          hits2=$(git ls-files | grep -v '^\.github/' | xargs grep -InE \
-            "00000000|example|CS101|CS102|CS103|CS104|CS105|CS106" 2>/dev/null || true)
-          if [ -n "$hits2" ]; then echo "✗ 命中个人/学校标识："; echo "$hits2"; fail=1; fi
-
-          # 3) LICENSE 的版权行只允许账号名
+          # 1) LICENSE 版权行只允许 GitHub 账号名（本项目为 JackZhang144）
           if git ls-files | grep -v '^\.github/' | xargs grep -InE \
-            'Copyright \(c\).*(Zhang|Yu)' 2>/dev/null | grep -v "JackZhang144"; then
-            echo "✗ LICENSE 署名不是预期的账号名"; fail=1
+            'Copyright \(c\).*' 2>/dev/null | grep -vE 'JackZhang144'; then
+            echo "✗ LICENSE 署名不是预期的 GitHub 账号名"; fail=1
           fi
 
+          # 2) 不留个人邮箱（只允许 GitHub 的 noreply 地址）
+          hits=$(git ls-files | grep -v '^\.github/' | xargs grep -InoE \
+            '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' 2>/dev/null \
+            | grep -v 'users.noreply.github.com' \
+            | grep -vE '(example\.(com|org)|instructure\.com|你的|your-)' || true)
+          if [ -n "$hits" ]; then echo "✗ 命中疑似个人邮箱："; echo "$hits"; fail=1; fi
+
+          # 3) 文档与示例里不得出现真实的校内主机名（示例一律用 *.example.edu / demo.*）
+          hits2=$(git ls-files | grep -v '^\.github/' | xargs grep -InoE \
+            '(canvas|elearning|lms|moodle)\.(example|edu|ac)\.[a-z.]+' 2>/dev/null || true)
+          if [ -n "$hits2" ]; then echo "✗ 命中疑似真实校内域名："; echo "$hits2"; fail=1; fi
+
           test "$fail" = "0" || exit 1
-          echo "✓ 未发现真实姓名、学号、学校域名或真实课号"
+          echo "✓ 署名合规、无个人邮箱、无真实校内域名"
