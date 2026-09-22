@@ -16,7 +16,7 @@
 |---|---|
 | 一次性确认"我能不能用" | `uv run canvas doctor` |
 | 把一门课的全部课件下载到本地（幂等，可重跑） | `uv run canvas download 12345` |
-| 看清未来两周有什么要交 | `uv run canvas deadlines --days 14` |
+| 看清未来两周有什么要交（含"交没交"） | `uv run canvas deadlines --days 14` |
 | 为每门课生成一份课程要点（评分占比/作业/组队要求） | `uv run canvas-summary --all` |
 | 提交作业（会真的提交，默认演练） | `uv run canvas-submit 12345 67890 --confirm` |
 

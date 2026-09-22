@@ -168,6 +168,29 @@ def cmd_manifest(client, course_id=None, all_courses=False):
     return 0
 
 
+def submission_label(item):
+    """从作业自带的 submission 字段给出「交没交」的状态标签。
+
+    `canvas assignments` 请求时带了 `include[]=submission`，所以正常情况下
+    这里能拿到状态，不必再逐条多发一个请求。
+
+    **读不到状态时明确标记，绝不当成「未提交」**——这类静默误判会让人误以为
+    还没交而重复提交，比直接报错更糟。
+    """
+    submission = item.get("submission")
+    if not isinstance(submission, dict):
+        return "状态未知"
+    state = submission.get("workflow_state")
+    if submission.get("submitted_at"):
+        stamp = str(submission["submitted_at"])[:10]
+        return "已评分" if submission.get("graded_at") else "已提交 %s" % stamp
+    if state == "graded":
+        return "已评分"
+    if state == "unsubmitted" or state is None:
+        return "未提交"
+    return str(state)
+
+
 def cmd_deadlines(client, days=14):
     """近 N 天要交的东西：作业 / 考试（Canvas 里考试也是 assignment）。"""
     now = datetime.now(timezone.utc)
@@ -196,13 +219,16 @@ def cmd_deadlines(client, days=14):
         return 0
 
     print("未来 %d 天内要交的（共 %d 项）：" % (days, len(rows)))
-    print("%-17s  %-30s  %-34s  %s" % ("截止(本地时间)", "课程", "作业", "提交方式"))
+    print("%-17s  %-28s  %-30s  %-10s  %s" % (
+        "截止(本地时间)", "课程", "作业", "状态", "提交方式"))
     for when, course_name, item in rows:
         local = when.astimezone().strftime("%m-%d %a %H:%M")
-        print("%-17s  %-30s  %-34s  %s" % (
-            local, (course_name or "")[:30], (item.get("name") or "")[:34],
-            ",".join(item.get("submission_types") or [])))
-    print("\n提交前务必再核对 Canvas 页面：due_at 可能被老师改过，"
+        print("%-17s  %-28s  %-30s  %-10s  %s" % (
+            local, (course_name or "")[:28], (item.get("name") or "")[:30],
+            submission_label(item), ",".join(item.get("submission_types") or [])))
+    print("\n状态来自 Canvas 的 submission 字段（未提交/已提交/已评分）；"
+          "读取失败会明确标出，不会静默当成未提交。")
+    print("提交前务必再核对 Canvas 页面：due_at 可能被老师改过，"
           "有些作业是线下交或通过邮件交。")
     return 0
 

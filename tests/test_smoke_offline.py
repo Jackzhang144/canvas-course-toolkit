@@ -133,12 +133,26 @@ class FakeCanvas(BaseHTTPRequestHandler):
 
         if path == "%s/courses/%d/assignments" % (base, COURSE_ID):
             return self._json([
+                # 三态各一个：未提交 / 已提交 / 已评分 —— 顺带验证状态标签不会串
                 {"id": ASSIGNMENT_ID, "name": "HW1 - Variables", "points_possible": 100,
                  "submission_types": ["online_upload"],
-                 "due_at": "2099-09-20T15:59:00Z", "description": ""},
+                 "due_at": "2099-09-20T15:59:00Z", "description": "",
+                 "submission": {"submitted_at": None, "workflow_state": "unsubmitted"}},
                 {"id": 67891, "name": "Midterm Exam", "points_possible": 100,
                  "submission_types": ["on_paper"],
-                 "due_at": "2099-10-20T01:59:00Z", "description": ""},
+                 "due_at": "2099-10-20T01:59:00Z", "description": "",
+                 "submission": {"submitted_at": "2099-10-19T02:00:00Z",
+                                "workflow_state": "submitted"}},
+                {"id": 67892, "name": "HW2 - Loops", "points_possible": 100,
+                 "submission_types": ["online_upload"],
+                 "due_at": "2099-10-25T15:59:00Z", "description": "",
+                 "submission": {"submitted_at": "2099-10-24T01:00:00Z",
+                                "graded_at": "2099-10-30T01:00:00Z",
+                                "workflow_state": "graded"}},
+                # 没有 submission 字段：必须显示「状态未知」，不能冒充「未提交」
+                {"id": 67893, "name": "HW3 - Files", "points_possible": 100,
+                 "submission_types": ["online_upload"],
+                 "due_at": "2099-10-30T15:59:00Z", "description": ""},
             ])
 
         if path == "%s/courses/%d/folders" % (base, COURSE_ID):
@@ -313,8 +327,22 @@ def test_end_to_end(tmp_path=None):
             assert "CS101_Introduction_to_Programming" in index
             assert "Assignments 30%" in index
 
-            # 9) deadlines
+            # 9) deadlines：要带「交没交」的状态，且读不到状态时不得冒充未提交
             assert cli.cmd_deadlines(client, days=30) == 0
+
+            import io
+            import contextlib
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                cli.cmd_deadlines(client, days=40000)     # 放宽时间窗，确保四项都进来
+            table = buf.getvalue()
+            assert "未提交" in table, table
+            assert "已提交 2099-10-19" in table, table
+            assert "已评分" in table, table
+            assert "状态未知" in table, table
+            # 状态未知的那一项不能被算成未提交
+            unknown_line = [l for l in table.splitlines() if "HW3 - Files" in l]
+            assert unknown_line and "状态未知" in unknown_line[0], unknown_line
     finally:
         os.chdir(cwd)
         import shutil

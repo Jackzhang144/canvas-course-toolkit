@@ -172,6 +172,26 @@ def test_scan_self_expose_flags_script_names():
     assert hits and any("check-answers" in pattern for _, pattern, _ in hits)
 
 
+def test_submission_label_never_fakes_unsubmitted():
+    """「交没交」的状态标签：读不到就必须说不知道，不能冒充「未提交」。
+
+    静默把「读不到」显示成「未提交」，会让人以为还没交而重复提交 —— 比报错更糟。
+    """
+    from scripts.cli import submission_label
+
+    assert submission_label({"submission": {"submitted_at": None,
+                                            "workflow_state": "unsubmitted"}}) == "未提交"
+    assert submission_label({"submission": {"submitted_at": "2099-10-19T02:00:00Z",
+                                            "workflow_state": "submitted"}}) == "已提交 2099-10-19"
+    assert submission_label({"submission": {"submitted_at": "2099-10-19T02:00:00Z",
+                                            "graded_at": "2099-10-30T02:00:00Z",
+                                            "workflow_state": "graded"}}) == "已评分"
+    # 缺字段、类型不对、空值 —— 一律「状态未知」
+    assert submission_label({}) == "状态未知"
+    assert submission_label({"submission": None}) == "状态未知"
+    assert submission_label({"submission": "unsubmitted"}) == "状态未知"
+
+
 # --------------------------------------------------------------------------- #
 # 无 pytest 时的兜底 runner
 # --------------------------------------------------------------------------- #
