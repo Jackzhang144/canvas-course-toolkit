@@ -229,6 +229,35 @@ def test_readme_layout_contract():
     assert "（暂无已发布的 Canvas 作业）" in empty
 
 
+def test_opening_description_when_no_course_description_heading():
+    """很多大纲没有 "Course Description" 标题，第一行直接就是描述。
+
+    真实实例上就有这种：概述会整个空掉。此时取第一个已知章节之前的开场文字，
+    但**不能**退化成"整份大纲前 600 字"（那会把评分/组队搬进概述）。
+    """
+    no_heading = ("This course introduces the basic concepts of information security.\n\n"
+                  "Course Intended Learning Outcomes (CILOs)\n\n"
+                  "1. Identify the organizational requirements.\n")
+    got = cs.opening_description(no_heading)
+    assert got.startswith("This course introduces")
+    assert "CILOs" not in got and "Identify the organizational" not in got
+
+    # 开头只有一行短标题时，跳过它再取正文
+    with_title = "CS101: Introduction\n\nThis course teaches programming from scratch.\n"
+    assert cs.opening_description(with_title).startswith("This course teaches")
+
+    # 实在没有可用的开场文字时返回空串，交给调用方别的兜底
+    assert cs.opening_description("CS101") == ""
+    assert cs.opening_description("") == ""
+
+    # 无标题大纲走 build_readme 时，概述必须有内容且不污染
+    course = {"id": 1, "name": "CS101 Introduction to Programming", "term": {"name": "2025 Fall"}}
+    readme = cs.build_readme(course, [], [], no_heading, [], [], now="2026-01-01 00:00")
+    overview = readme.split("## 概述")[1].split("\n## ")[0]
+    assert "This course introduces" in overview, overview
+    assert "CILOs" not in overview, overview
+
+
 # --------------------------------------------------------------------------- #
 # 无 pytest 时的兜底 runner
 # --------------------------------------------------------------------------- #

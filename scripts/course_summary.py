@@ -109,7 +109,11 @@ def section(text, start, end=None, limit=1500):
 
 
 def _find_first_marker(text, body_start):
-    """在 body_start 之后找最早的已知章节名，返回其位置；找不到返回 None。"""
+    """在 text[body_start:] 里找最早的已知章节名，返回绝对位置；找不到返回 None。
+
+    注意 min 长度限制：不能在 body_start 之前找，否则 "Assessment" 出现在
+    概述正文里时会把自己截断成空串。
+    """
     lowered = text.lower()
     best = None
     for marker in DESCRIPTION_STOP_MARKERS:
@@ -168,6 +172,26 @@ def block_after(text, word, maxlen=1400):
     if stop is not None:
         return text[start:stop].strip()
     return text[start:start + maxlen].strip()
+
+
+def opening_description(text, limit=600, min_chars=40):
+    """无 "Course Description" 标题时，取大纲开场文字作为概述。
+
+    做法：找到第一个已知章节名（CILOs / 评分 / 组队…），取它之前的文字。
+    - 开头若只有一行很短的标题（如 "CS101: Intro"），跳过它再取；
+    - 取不到足够内容就返回空串，让调用方走别的兜底。
+    """
+    if not text:
+        return ""
+    stop = _find_first_marker(text, 0)
+    chunk = (text[:stop] if stop is not None else text[:limit]).strip()
+    if chunk:
+        first, _, rest = chunk.partition("\n")
+        if len(first.strip()) < min_chars and rest.strip():
+            chunk = rest.strip()
+    if len(chunk) < min_chars:
+        return ""
+    return chunk[:limit].rstrip()
 
 
 def safe_slug(value, maxlen=60):
@@ -249,6 +273,11 @@ def build_readme(course, groups, assignments, syllabus_text, announcements, file
     ]
 
     desc = section(syllabus_text, *SECTION_DESCRIPTION)
+    if not desc:
+        # 很多大纲（实测有课程如此）根本没有 "Course Description" 标题，
+        # 开头第一段就是描述，之后就进入 CILOs / 评分。此时取已知章节之前的开场文字，
+        # 别再退回"整份大纲前 600 字"——那样会把评分和组队内容一起搬进概述。
+        desc = opening_description(syllabus_text)
     desc = re.sub(r"\s*\d+\.\s*$", "", desc)
     if desc:
         lines.append(desc)
