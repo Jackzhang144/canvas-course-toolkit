@@ -239,37 +239,95 @@ def submission_label(item):
     return str(state)
 
 
+def _parse_due(value):
+    """Canvas 的 due_at（ISO8601，通常带 Z）→ aware datetime；解析不了返回 None。"""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def split_deadlines(course_items, days=14, now=None):
+    """把各课作业分成「未来 N 天内」与「已逾期」两堆。纯函数，便于离线测试。
+
+    `course_items`: [(课程名, 作业列表), ...]
+
+    为什么要单独挑出「已逾期」：只列未来 N 天会**整个漏掉早就过期还没交的作业**
+    （逾期 3 天以上就落到窗口外，屏幕上什么都没有，反而以为没事）。
+    逾期项按截止时间从早到晚排，最该处理的排最前。
+    """
+    now = now or datetime.now(timezone.utc)
+    horizon = now + timedelta(days=days)
+    upcoming, overdue = [], []
+    for course_name, assignments in course_items:
+        for item in assignments or []:
+            when = _parse_due(item.get("due_at"))
+            if when is None:
+                continue
+            row = (when, course_name, item)
+            if when > now:
+                if when <= horizon:
+                    upcoming.append(row)
+            else:
+                overdue.append(row)
+    upcoming.sort(key=lambda row: row[0])
+    overdue.sort(key=lambda row: row[0])
+    return upcoming, overdue
+
+
+def _has_submission_evidence(item):
+    """作业是否已有「交过」的证据。读不到状态时返回 False（= 没证据），不下结论。"""
+    submission = item.get("submission")
+    if not isinstance(submission, dict):
+        return False
+    if submission.get("submitted_at"):
+        return True
+    return submission.get("workflow_state") in ("submitted", "graded", "pending_review")
+
+
 def cmd_deadlines(client, days=14):
     """近 N 天要交的东西：作业 / 考试（Canvas 里考试也是 assignment）。"""
-    now = datetime.now(timezone.utc)
-    horizon = now + timedelta(days=days)
-    rows = []
+    course_items = []
     for course in client.courses():
         try:
             assignments = client.assignments(course["id"])
         except cc.CanvasError as exc:
             print("  [跳过] %s: HTTP %s" % (course.get("name"), exc.status))
             continue
-        for item in assignments:
-            due = item.get("due_at")
-            if not due:
-                continue
-            try:
-                when = datetime.fromisoformat(str(due).replace("Z", "+00:00"))
-            except ValueError:
-                continue
-            if now - timedelta(days=1) <= when <= horizon:
-                rows.append((when, course.get("name"), item))
+        course_items.append((course.get("name"), assignments))
 
-    rows.sort(key=lambda row: row[0])
-    if not rows:
-        print("未来 %d 天内没有截止的作业（以 Canvas 已发布的 due_at 为准）。" % days)
+    upcoming, overdue = split_deadlines(course_items, days=days)
+    # 已逾期里只列「Canvas 上查不到提交记录」的：已交/已评分的不必再吓人。
+    # 状态读不到的也照列（标「状态未知」），宁可多提醒一次，也不让它从屏幕上消失。
+    pending_overdue = [row for row in overdue if not _has_submission_evidence(row[2])]
+
+    if not upcoming and not pending_overdue:
+        print("未来 %d 天内没有截止的作业，也没有查到逾期未交的（以 Canvas 已发布的 due_at 为准）。"
+              % days)
         return 0
 
-    print("未来 %d 天内要交的（共 %d 项）：" % (days, len(rows)))
+    if pending_overdue:
+        print("⚠ 已逾期、且 Canvas 上查不到提交记录（共 %d 项）：" % len(pending_overdue))
+        print("%-17s  %-28s  %-30s  %-16s  %s" % (
+            "截止(本地时间)", "课程", "作业", "逾期/状态", "提交方式"))
+        for when, course_name, item in pending_overdue:
+            local = when.astimezone().strftime("%m-%d %a %H:%M")
+            late = (datetime.now(timezone.utc) - when).days
+            print("%-17s  %-28s  %-30s  %-16s  %s" % (
+                local, (course_name or "")[:28], (item.get("name") or "")[:30],
+                "逾期 %d 天·%s" % (late, submission_label(item)),
+                ",".join(item.get("submission_types") or [])))
+        print("  先看课程要求是否允许迟交——不接受迟交的课，尽早联系老师。\n")
+
+    if upcoming:
+        print("未来 %d 天内要交的（共 %d 项）：" % (days, len(upcoming)))
+    else:
+        print("未来 %d 天内没有截止的作业。" % days)
     print("%-17s  %-28s  %-30s  %-10s  %s" % (
         "截止(本地时间)", "课程", "作业", "状态", "提交方式"))
-    for when, course_name, item in rows:
+    for when, course_name, item in upcoming:
         local = when.astimezone().strftime("%m-%d %a %H:%M")
         print("%-17s  %-28s  %-30s  %-10s  %s" % (
             local, (course_name or "")[:28], (item.get("name") or "")[:30],

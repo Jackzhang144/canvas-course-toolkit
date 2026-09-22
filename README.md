@@ -17,7 +17,7 @@
 | 第一次用：看看还差什么配置 | `uv run canvas init` |
 | 一次性确认"我能不能用" | `uv run canvas doctor` |
 | 把一门课的全部课件下载到本地（幂等，可重跑） | `uv run canvas download 12345` |
-| 看清未来两周有什么要交（含"交没交"） | `uv run canvas deadlines --days 14` |
+| 看清未来两周有什么要交、**逾期未交的也一并列出**（含"交没交"） | `uv run canvas deadlines --days 14` |
 | 为每门课生成一份课程要点（评分占比/作业/组队要求） | `uv run canvas-summary --all` |
 | 提交作业（会真的提交，默认演练） | `uv run canvas-submit 12345 67890 --confirm` |
 
@@ -62,7 +62,7 @@ uv run canvas files 12345            # 这门课有哪些文件可下（先看�
 uv run canvas download 12345 --dry-run   # 演练：只列出将要下载的文件
 uv run canvas download 12345         # 真下载到 CourseFiles/<课程目录>/
 uv run canvas manifest --all         # 为所有课程更新 MANIFEST.md 增量清单
-uv run canvas deadlines --days 7     # 未来 7 天要交什么
+uv run canvas deadlines --days 7     # 未来 7 天要交什么 + 已逾期却查不到提交记录的
 
 uv run canvas-summary 12345          # 生成/刷新这门课的 README（要点）
 uv run canvas-summary --all          # 所有课程
@@ -120,7 +120,7 @@ canvas-course-toolkit/
 
 ## 可信度
 
-- `uv run --dev pytest` 共 36 项测试，**全部离线**：不联网、不需要令牌、不需要任何 secret，
+- `uv run --dev pytest` 共 38 项测试，**全部离线**：不联网、不需要令牌、不需要任何 secret，
   所以你在自己机器上和 CI 里跑的结果是同一个。
   其中包含一个**假 Canvas 服务器**，真实跑通整条链：
   自动翻页 → 403 回退从页面正文捞附件 → 幂等下载（重跑不重下）→ 清单/要点/索引生成 →

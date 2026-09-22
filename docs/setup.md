@@ -127,7 +127,7 @@ uv run canvas doctor
 uv run canvas files 12345              # 看看这门课有什么
 uv run canvas download 12345 --dry-run # 演练：只列出会下载什么
 uv run canvas download 12345           # 真下载
-uv run canvas deadlines --days 14      # 未来两周要交什么
+uv run canvas deadlines --days 14      # 未来两周要交什么 + 已逾期未交的
 ```
 
 ---

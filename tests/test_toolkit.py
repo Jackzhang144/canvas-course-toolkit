@@ -521,6 +521,66 @@ def test_describe_surfaces_layout_and_metadata_warnings():
 
 
 # --------------------------------------------------------------------------- #
+# 截止列表：逾期项不能从屏幕上消失
+# --------------------------------------------------------------------------- #
+def test_split_deadlines_reports_overdue_beyond_the_window():
+    """逾期 30 天也必须报出来。
+
+    旧实现只列 [now-1天, now+N天]：一份两周前就该交、至今没交的作业会**完全消失**，
+    屏幕上什么都没有，反而让人以为没事 —— 这正是最该被提醒的一类。
+    """
+    from datetime import datetime, timezone
+
+    from scripts.cli import split_deadlines
+
+    now = datetime(2099, 1, 10, tzinfo=timezone.utc)
+    items = [("Demo Course", [
+        {"name": "Overdue", "due_at": "2099-01-05T00:00:00Z"},
+        {"name": "Soon", "due_at": "2099-01-12T00:00:00Z"},
+        {"name": "Far", "due_at": "2099-03-01T00:00:00Z"},
+        {"name": "NoDue", "due_at": None},
+    ])]
+    upcoming, overdue = split_deadlines(items, days=7, now=now)
+
+    assert [row[2]["name"] for row in upcoming] == ["Soon"]
+    assert [row[2]["name"] for row in overdue] == ["Overdue"]
+
+
+def test_cmd_deadlines_shows_overdue_unsubmitted_and_unknown_but_not_submitted():
+    import contextlib
+    import io
+
+    from scripts.cli import cmd_deadlines
+
+    class _Stub:
+        def courses(self):
+            return [{"id": 1, "name": "Demo Course"}]
+
+        def assignments(self, course_id):
+            return [
+                {"name": "Late-Unsubmitted", "due_at": "2000-01-01T00:00:00Z",
+                 "submission_types": ["online_upload"],
+                 "submission": {"workflow_state": "unsubmitted", "submitted_at": None}},
+                {"name": "Late-Submitted", "due_at": "2000-01-02T00:00:00Z",
+                 "submission_types": ["online_upload"],
+                 "submission": {"workflow_state": "submitted",
+                                "submitted_at": "2000-01-02T00:00:00Z"}},
+                {"name": "Late-Unknown", "due_at": "2000-01-03T00:00:00Z",
+                 "submission_types": ["online_upload"]},      # 状态读不到
+            ]
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = cmd_deadlines(_Stub(), days=7)
+    out = buf.getvalue()
+
+    assert rc == 0
+    assert "Late-Unsubmitted" in out and "逾期" in out
+    assert "Late-Submitted" not in out            # 已交的不再吓人
+    assert "Late-Unknown" in out and "状态未知" in out   # 读不到就照列 + 明说未知
+
+
+# --------------------------------------------------------------------------- #
 # 无 pytest 时的兜底 runner
 # --------------------------------------------------------------------------- #
 def _run_standalone():

@@ -226,7 +226,7 @@ def describe(client, course_id, assignment_id, files, latex_logs=()):
         if os.path.splitext(path)[1].lower() == ".pdf":
             has_pdf = True
             if not extract_pdf_text(path) and not hits:
-                print("     ℹ 没能抽出 PDF 文本层（缺 pdftotext/gs？），"
+                print("     ℹ 没能抽出 PDF 文本层（文件读不了，或本机没有 pdftotext/gs），"
                       "自曝检查未覆盖这一份，请自己翻一遍末页。")
 
             # 2) PDF 属性：LaTeX 默认写 Creator/Producer，等于盖章"机器排版"
