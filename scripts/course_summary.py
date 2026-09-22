@@ -43,6 +43,15 @@ SECTION_INFO_KEYS = [
 #: 组队/项目章节的标题关键词（用于定位大纲里的段落，以及筛公告）
 GROUP_KEYWORDS = r"(group|team|partner|member|contribution|组队|小组|团队|分工)"
 
+#: 概述段的兜底停止词。很多大纲是**没有编号的段落式**（每个小标题就是一行），
+#: 这时既拿不到配置的 end、也没有 `3. Assessment` 这种编号可依；
+#: 若不放兜底，"概述"会把整份大纲吞进来，让 README 里评分/组队内容重复一遍。
+#: 自己学校的措辞不一样就往这里加词。
+DESCRIPTION_STOP_MARKERS = [
+    "assessment", "grading", "intended learning outcomes", "learning outcomes",
+    "group project", "course schedule", "teaching and learning", "考核", "评分", "学习成果",
+]
+
 #: 「标签 + 百分比」的识别（评分占比）。英文/中文标题都支持。
 PERCENT_PATTERN = re.compile(r"([A-Za-z\u4e00-\u9fff][^\n]*?)\s*\n\s*\n?\s*(\d{1,3}(?:\.\d+)?)\s*%", re.M)
 
@@ -61,17 +70,53 @@ def to_text(raw_html):
 
 
 def section(text, start, end=None, limit=1500):
-    """截取 start..end 之间的文本；找不到返回空串。"""
+    """截取 start..end 之间的文本；找不到 start 返回空串。
+
+    主要用途是取「课程概述」。两个坑：
+
+    1. 很多大纲的人话标题和程序里配的 `end` 对不上（措辞不同、干脆没有），
+       这时若一路读到 `limit`，概述会把**整份大纲**吞进来 —— 评分占比、
+       组队要求会在 README 里重复出现。所以 end 找不到时，退而求其次停在
+       **下一个编号小标题**（`3. Assessment` 之类），这也更符合"一节"的语义。
+    2. 万一连编号标题都没有，才用 `limit` 兜底，避免打印整篇。
+    """
     if not text:
         return ""
     pos = text.lower().find(start.lower())
     if pos < 0:
         return ""
+    body_start = pos + len(start)
     if end:
-        nxt = text.lower().find(end.lower(), pos + len(start))
+        nxt = text.lower().find(end.lower(), body_start)
         if nxt > pos:
             return text[pos:nxt].strip()
+    # end 没命中：停在下一条编号小标题之前
+    nxt_section = re.search(r"(?m)^\s*\d+\.\s+[A-Za-z\u4e00-\u9fff]", text[body_start:])
+    if nxt_section:
+        stop = body_start + nxt_section.start()
+        if stop > pos:
+            return text[pos:stop].strip()
+    # 段落式大纲（无编号）：
+    #   a) 先试已知章节名兜底
+    stop = _find_first_marker(text, body_start)
+    if stop is not None:
+        return text[pos:stop].strip()
+    #   b) 都没有就按字数截断，并在句子边界收尾
+    if len(text) - pos > limit:
+        cut = text.rfind(".", pos, pos + limit)
+        return text[pos:cut + 1 if cut > pos else pos + limit].strip()
     return text[pos:pos + limit].strip()
+
+
+def _find_first_marker(text, body_start):
+    """在 body_start 之后找最早的已知章节名，返回其位置；找不到返回 None。"""
+    lowered = text.lower()
+    best = None
+    for marker in DESCRIPTION_STOP_MARKERS:
+        idx = lowered.find(marker.lower(), body_start)
+        if idx >= 0 and (best is None or idx < best):
+            best = idx
+    return best
 
 
 def percent_pairs(text):
@@ -93,16 +138,24 @@ def percent_pairs(text):
 
 
 def block_after(text, word, maxlen=1400):
-    """取以 `N. word` 开头的编号章节，边界为下一个编号章节。
+    """取以 `word` 为标题的章节，边界为下一个编号章节或下一个已知章节名。
 
-    只匹配 `5. Assessment` 这种带编号的小标题，避免误配正文里同名的词。
+    优先匹配 `5. Group Project` 这种带编号的小标题（最稳，能避免误配正文里
+    同名的词）；很多大纲是**段落式、没有编号**的，这时退回"整行就是标题"的
+    匹配，并用下一个已知章节名收尾，别把整份大纲都吞进来。
     """
     if not text:
         return ""
+
     match = re.search(r"(?im)^\s*\d+\.\s+%s\b" % re.escape(word), text)
     if not match:
+        # 段落式：标题独占一行（允许行首空白），如 "Group Project"
+        match = re.search(r"(?im)^\s*%s\s*$" % re.escape(word), text)
+    if not match:
         return ""
+
     start = match.start()
+    # 若匹配到的是正文里出现的同名词而不是标题行，后面只有少量文字时不必取值
     after = text.find("\n", start)
     if after < 0:
         return text[start:start + maxlen].strip()
@@ -110,6 +163,10 @@ def block_after(text, word, maxlen=1400):
     nxt = re.search(r"(?m)^\s*\d+\.\s+[A-Za-z\u4e00-\u9fff]", text[after:])
     if nxt:
         return text[start:after + nxt.start()].strip()
+    # 无编号：停在下一条已知章节名之前
+    stop = _find_first_marker(text, after)
+    if stop is not None:
+        return text[start:stop].strip()
     return text[start:start + maxlen].strip()
 
 

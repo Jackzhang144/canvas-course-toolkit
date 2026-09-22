@@ -148,8 +148,14 @@ def cmd_download(client, course_id, dest=None, dry_run=False, term_prefix=False)
     print("完成：新下载 %d，已存在跳过 %d，失败 %d" % (downloaded, skipped, failed))
     for fid, name, err in failures:
         print("  失败文件: %s (%s) -> %s" % (fid, name, err))
+    # 页面数也写进清单，让 `canvas download` 与 `canvas manifest` 产出同一种形状
+    try:
+        page_count = len(client.pages(course_id))
+    except cc.CanvasError:
+        page_count = None
     manifest = cc.write_manifest(course, files, dest,
-                                 note=("失败 %d 个" % failed) if failed else "")
+                                 note=("失败 %d 个" % failed) if failed else "",
+                                 page_count=page_count)
     print("清单已更新:", manifest)
     return 1 if failed else 0
 

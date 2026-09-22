@@ -97,9 +97,10 @@ class FakeCanvas(BaseHTTPRequestHandler):
             return self._json({
                 "id": COURSE_ID, "name": "CS101 Introduction to Programming",
                 "course_code": "CS101", "term": {"name": "2025 Fall"},
+                # 段落式大纲（无编号）：概述段必须只取描述，别把评分/组队一起吞进来
                 "syllabus_body": "<p>Course Description</p><p>Learn to program in Python.</p>"
                                  "<p>Assessment</p><p>Assignments\n30%</p><p>Final\n70%</p>"
-                                 "<p>5. Group Project</p><p>Form groups of 3 to 4 members.</p>",
+                                 "<p>Group Project</p><p>Form groups of 3 to 4 members.</p>",
             })
 
         if path == "%s/courses/%d/pages" % (base, COURSE_ID):
@@ -318,6 +319,11 @@ def test_end_to_end(tmp_path=None):
             assert "Final：70%" in readme
             assert "3 to 4 members" in readme
             assert "Group Project Team Registration" in readme
+            # 概述段只能取到描述，不能把评分/组队内容重复一遍
+            overview = readme.split("## 概述")[1].split("\n## ")[0]
+            assert "Learn to program in Python." in overview
+            assert "Assessment" not in overview, overview
+            assert "Group Project" not in overview, overview
             assert os.path.isfile(os.path.join("CourseFiles", "CS101_Introduction_to_Programming",
                                                "syllabus.md"))
 

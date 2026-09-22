@@ -192,6 +192,43 @@ def test_submission_label_never_fakes_unsubmitted():
     assert submission_label({"submission": "unsubmitted"}) == "状态未知"
 
 
+def test_section_stops_at_numbered_heading_when_end_missing():
+    """概述段不能被拉扯成整份大纲。
+
+    真实大纲的标题措辞常和代码里配的 `end` 对不上。这时若一路读到 limit，
+    README 的「概述」会把评分占比、组队要求整段重复一遍。
+    """
+    syllabus = ("1. Course Description\nLearn to program.\n"
+                "3. Assessment\nAssignments 30%\n"
+                "5. Group Project\nForm groups of 3 to 4 members.\n")
+    got = cs.section(syllabus, "Course Description", "A Heading That Does Not Exist")
+    assert "Learn to program." in got
+    assert "Assessment" not in got, got
+    assert "Group Project" not in got, got
+
+    # end 命中时仍按 end 截断（原行为不变）
+    got2 = cs.section(syllabus, "Course Description", "Assessment")
+    assert "Learn to program." in got2 and "Assignments 30%" not in got2
+
+
+def test_readme_layout_contract():
+    """README 的章节顺序与表头是文档/样例承诺过的形状，防止静默漂移。"""
+    course = {"id": 12345, "name": "CS101 Introduction to Programming",
+              "term": {"name": "2025 Fall"}}
+    assignments = [{"name": "HW1", "points_possible": 100,
+                    "submission_types": ["online_upload"], "due_at": "2026-01-05T00:00:00Z"}]
+    readme = cs.build_readme(course, [], assignments, "1. Course Description\nLearn to program.",
+                             [], [], now="2026-01-01 00:00")
+    for heading in ("## 概述", "## 评分占比（考试 vs 平时分）", "## 作业（Canvas 已发布）",
+                    "## 组队 / 项目要求", "## 课程资料（CourseFiles）", "## 待更新"):
+        assert heading in readme, "缺少章节: %s" % heading
+    # 有作业时才出表头；无作业时应显示"暂无"而不是空表
+    assert "| 作业 | 分值 | 提交方式 | 截止 |" in readme
+    empty = cs.build_readme(course, [], [], "1. Course Description\nLearn to program.",
+                            [], [], now="2026-01-01 00:00")
+    assert "（暂无已发布的 Canvas 作业）" in empty
+
+
 # --------------------------------------------------------------------------- #
 # 无 pytest 时的兜底 runner
 # --------------------------------------------------------------------------- #
