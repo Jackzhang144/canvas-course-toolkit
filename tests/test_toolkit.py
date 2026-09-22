@@ -353,6 +353,174 @@ def test_host_problem_detection():
 
 
 # --------------------------------------------------------------------------- #
+# 提交件预检：PDF 文本层、PDF 属性、LaTeX 日志
+#   起因：只扫 .tex/.md 会漏掉「真正被老师看到的那一面」（PDF）；
+#   而 Overfull 这类版面问题在 PDF 文本抽取里完全看不出来，只能查编译日志。
+# --------------------------------------------------------------------------- #
+def test_scan_self_expose_reads_pdf_text_layer():
+    from scripts.submit import scan_self_expose
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "solution.pdf")
+        with open(path, "wb") as fh:
+            fh.write(b"%PDF-1.4\n")
+        seen = {}
+
+        def fake_extractor(p):
+            seen["path"] = p
+            return "第一页\n所有计算均以脚本复核（见 check-answers.py）\n"
+
+        hits = scan_self_expose(path, pdf_extractor=fake_extractor)
+    assert seen["path"] == path
+    assert hits and any("check-answers" in pattern for _, pattern, _ in hits)
+
+
+def test_scan_self_expose_pdf_without_extractor_is_not_reported_as_clean():
+    """抽不出文本时返回空列表（= 没检查），空列表不等于"没问题"。
+
+    调用方（describe）必须另行提示"这一份没覆盖"，不能静默当成通过。
+    """
+    from scripts.submit import scan_self_expose
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "solution.pdf")
+        with open(path, "wb") as fh:
+            fh.write(b"%PDF-1.4\n")
+        assert scan_self_expose(path, pdf_extractor=lambda _p: "") == []
+
+
+def test_extract_pdf_text_falls_back_and_never_raises():
+    from scripts import submit as sm
+
+    calls = []
+
+    class _Proc:
+        returncode = 0
+        stdout = b"HELLO"
+
+    def fake_runner(cmd, capture_output=True, timeout=0):
+        calls.append(cmd[0])
+        if cmd[0] == "pdftotext":
+            raise RuntimeError("pdftotext 崩了")      # 提取器异常不能中断预检
+        return _Proc()
+
+    text = sm.extract_pdf_text("x.pdf", runner=fake_runner,
+                               which=lambda name: "/usr/bin/" + name)
+    assert text == "HELLO"
+    assert calls == ["pdftotext", "gs"]
+
+
+def test_extract_pdf_text_returns_empty_when_no_tool_available():
+    from scripts import submit as sm
+    assert sm.extract_pdf_text("x.pdf", runner=lambda *a, **k: None,
+                               which=lambda name: None) == ""
+
+
+def test_extract_pdf_text_ignores_gs_error_output():
+    """gs 对坏 PDF 会返回 0，却把报错写进 stdout。
+
+    不能把报错文本当成文件内容去扫 —— 否则既扫不出东西，又不会提示"这一份没覆盖"。
+    """
+    from scripts import submit as sm
+
+    class _Proc:
+        returncode = 0
+        stdout = b"   **** Error: Couldn't initialise file.\n   No pages will be processed\n"
+
+    text = sm.extract_pdf_text("x.pdf", runner=lambda *a, **k: _Proc(),
+                               which=lambda name: "/usr/bin/" + name)
+    assert text == ""
+
+
+def test_pdf_metadata_flags_latex_creator_and_ignores_clean_file():
+    from scripts.submit import pdf_metadata
+    with tempfile.TemporaryDirectory() as tmp:
+        dirty = os.path.join(tmp, "dirty.pdf")
+        with open(dirty, "wb") as fh:
+            fh.write(b"%PDF-1.5\n1 0 obj<</Creator (XeTeX output 2099.1.1)"
+                     b"/Producer (xdvipdfmx)>>\nendobj\n")
+        meta = pdf_metadata(dirty)
+
+        clean = os.path.join(tmp, "clean.pdf")
+        with open(clean, "wb") as fh:
+            fh.write(b"%PDF-1.5\n1 0 obj<</Type/Catalog>>\nendobj\n")
+        assert pdf_metadata(clean) == {}
+
+    assert meta.get("Creator", "").startswith("XeTeX")
+    assert "Producer" in meta
+
+
+def test_scan_latex_log_catches_overfull_and_missing_char():
+    from scripts.submit import scan_latex_log
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "solution.log")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("This is XeTeX, Version 3.141592653\n"
+                     "Overfull \\hbox (238.9pt too wide) in paragraph at lines 68--69\n"
+                     "Missing character: There is no ① in font nullfont!\n")
+        hits = scan_latex_log(path)
+
+    assert len(hits) == 2
+    assert any("Overfull" in line for _, line in hits)
+    assert scan_latex_log(os.path.join(tmp, "nope.log")) == []
+
+
+def test_find_latex_logs_scans_dir_build_and_explicit():
+    from scripts.submit import find_latex_logs
+    with tempfile.TemporaryDirectory() as tmp:
+        top = os.path.join(tmp, "solution.log")
+        with open(top, "w", encoding="utf-8") as fh:
+            fh.write("ok\n")
+        build = os.path.join(tmp, "build")
+        os.makedirs(build)
+        with open(os.path.join(build, "solution.log"), "w", encoding="utf-8") as fh:
+            fh.write("ok\n")
+
+        found = find_latex_logs(spec_dir=tmp)
+        assert len(found) == 2
+        assert any(p.endswith(os.path.join("build", "solution.log")) for p in found)
+        # 显式指定优先
+        assert find_latex_logs(spec_dir=tmp, explicit=[top]) == [os.path.abspath(top)]
+        # 只给了文件时也能从它所在目录推出来
+        assert find_latex_logs(files=[os.path.join(tmp, "solution.pdf")])
+
+
+def test_describe_surfaces_layout_and_metadata_warnings():
+    """演练输出必须把三类风险摆到人眼前：自曝痕、PDF 属性、版面告警。"""
+    import contextlib
+    import io
+
+    from scripts import submit as sm
+
+    class _StubClient:
+        def course(self, course_id, includes=None):
+            return {"id": course_id, "name": "Demo Course"}
+
+        def assignment(self, course_id, assignment_id):
+            return {"name": "HW1", "due_at": "2099-01-01T00:00:00Z",
+                    "submission_types": ["online_upload"]}
+
+        def submissions(self, course_id, assignment_id):
+            return {"submitted_at": None}
+
+    with tempfile.TemporaryDirectory() as tmp:
+        pdf = os.path.join(tmp, "solution.pdf")
+        with open(pdf, "wb") as fh:
+            fh.write(b"%PDF-1.5\n1 0 obj<</Creator (XeTeX output 2099.1.1)>>\nendobj\n")
+        log = os.path.join(tmp, "solution.log")
+        with open(log, "w", encoding="utf-8") as fh:
+            fh.write("Overfull \\hbox (12.0pt too wide) in paragraph at lines 1--2\n")
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            _, can_submit = sm.describe(_StubClient(), 12345, 67890, [pdf], latex_logs=[log])
+    out = buf.getvalue()
+
+    assert can_submit is True
+    assert "Overfull" in out and "xurl" in out          # 版面告警 + 直接给出修法
+    assert "PDF 属性 Creator" in out                     # 元数据告警
+    assert "渲染成图片" in out                            # 人眼看版的提醒
+
+
+# --------------------------------------------------------------------------- #
 # 无 pytest 时的兜底 runner
 # --------------------------------------------------------------------------- #
 def _run_standalone():

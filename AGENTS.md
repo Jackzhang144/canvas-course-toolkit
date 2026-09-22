@@ -120,6 +120,15 @@ export CANVAS_TERM="2025Fall"                   # 可选，仅用于人肉过滤
 `scripts/` / `MANIFEST` / `AGENTS.md` 等仓库文件名，"脚本复核""AI/agent/自动化/生成时间"
 等字样，以及生成日期戳。工作区一侧的 `README.md`、`*.py`、日志照旧写清流水线，
 **两者口径必须分开**；PDF 要专门读一遍最后一页。细节见 [docs/security.md](docs/security.md)。
+`canvas-submit` 的演练会自动做两件事：**PDF 先抽文本层再扫**（不是只扫 `.tex` 源码），
+并把 `/Creator`、`/Producer` 等 PDF 属性列出来提醒。
+
+**提交件排版检查（强制）**：越界、缺字、编译告警和自曝痕一样会扣分，而且**文本抽取看不出来**
+（长 URL 在抽取文本里就是正常换行）。交 PDF 前必须：
+① 读编译日志，`grep -nE "Overfull|Underfull|Missing character" <build>.log` 期望无输出
+（`canvas-submit` 会自动找作业目录及其 `build/` 下的 `*.log` 并逐条列出）；
+② 把 PDF 渲染成图片（`gs -sDEVICE=png16m -r120 ...`）**真的用眼睛过一遍**首页、带表格/公式页、末页。
+常见对策：长 URL 加 `\usepackage{xurl}`，宽表格用 `tabularx`，长公式用 `multline`/`split`。
 
 **边界**：401 = 令牌失效；403 = 权限不足（可能不是这门课的成员）；404 = 资源不存在或被隐藏。
 作业提交是**不可逆**动作：必须先向使用者展示待提交文件与目标作业，得到确认后再执行；

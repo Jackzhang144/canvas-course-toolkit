@@ -70,7 +70,10 @@ grep -rIl "CANVAS_API_TOKEN" --exclude-dir=.venv --exclude-dir=.git . | grep -v 
 - [ ] 顺手看一眼 PDF 属性（`pdfinfo solution.pdf`）：LaTeX 默认会写
       `Creator: XeTeX`、`CreationDate`，用 `\hypersetup{pdfcreator=...,pdfauthor=...}` 显式覆盖；
 - [ ] 提交前用 `uv run canvas-submit ...`（不带 `--confirm`）演练一次，
-      它会自动扫文本类文件的命中行并打印 ⚠。
+      它会自动扫命中行并打印 ⚠ —— **PDF 会先抽文本层再扫**（`pdftotext` 或 `gs`），
+      因为交上去的通常正是 PDF，只扫 `.tex` 等于没看真正被老师看到的那一面；
+- [ ] **PDF 属性**（`/Creator`、`/Producer`、`/CreationDate`）也顺手清掉，
+      `canvas-submit` 会把扫描到的属性名一并打印出来提醒。
 
 **抽 PDF 文本自查：**
 
@@ -79,6 +82,45 @@ pdftotext solution.pdf - | tail -40          # 看末页文字
 pdfinfo solution.pdf                          # 看元数据
 pdftotext solution.pdf - | grep -niE "脚本|script|agent|AI|自动|生成|canvas|MANIFEST|check-answers"
 ```
+
+### 3.1 还有一类翻车：排版越界（文本抽取查不出来）
+
+自曝检查做得再全，**内容冲出页边距**照样扣分——而且这类问题有个阴险之处：
+
+> **纯文本抽取看起来一切正常。** 长 URL 在抽取出的文本里就是正常换行，
+> 和正常排版长得一模一样；`pdftotext` 也永远不会告诉你"它压到页边距外面了"。
+
+真实案例：一份 PDF 第 1 行的链接是条 90+ 字符的 URL，LaTeX 断不开它，
+整段冲出右边距 8.4cm。文件能编译、能打开、文本抽取正常，**直到人用眼睛看才发现**。
+当时的编译日志里其实一直写着：
+
+```
+Overfull \hbox (238.92365pt too wide) in paragraph at lines 68--69
+```
+
+只是没人去看它。
+
+**因此交 PDF 之前，这两件事必须都做（`canvas-submit` 会替你查日志，但看图只能你来）：**
+
+```bash
+# 1) 读编译日志（不要只看"编译成功"）—— 期望无输出
+grep -nE "Overfull|Underfull|Missing character" build/*.log solution.log 2>/dev/null
+#    用 latexmk 的话：latexmk ... 2>&1 | tee build.log
+#    canvas-submit 会自动找 <作业目录>/*.log 与 <作业目录>/build/*.log 并逐条列出来
+
+# 2) 渲染成图片，用人眼过一遍（首页、带表格/公式页、末页）
+gs -q -dNOPAUSE -dBATCH -dNOSAFER -sDEVICE=png16m -r120 \
+   -dFirstPage=1 -dLastPage=1 -sOutputFile=/tmp/p1.png solution.pdf
+```
+
+**常见溢出来源与对策：**
+
+| 现象 | 原因 | 对策 |
+|---|---|---|
+| 长 URL 冲出右边距 | `url`/`hyperref` 只在有限字符处断行 | 导言区加 `\usepackage{xurl}`（可与 `\Urlmuskip=0mu plus 1mu\relax` 搭配） |
+| 宽表格越界 | 列内容比版心宽 | `tabularx` 的 `X` 列、`\small`、缩短列内容 |
+| 长公式越界 | 单行公式太长 | `multline`/`split`，或 `\resizebox`（下策：字号会不一致） |
+| `Missing character` | 字体缺字形（emoji、特殊符号、生僻字） | 换字体或补字形；日志里搜 `Missing character` 逐条清 |
 
 > 顺带一句：如果某门课的作业要求明确禁止使用 AI 辅助，那么本仓库的任何功能都不要用在它上面。
 > 这是你自己的判断和责任。

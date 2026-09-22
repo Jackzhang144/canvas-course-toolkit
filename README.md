@@ -70,7 +70,12 @@ uv run canvas-summary --index        # 重建顶层 COURSES.md 索引
 
 uv run canvas-submit 12345 67890 --files solution.pdf          # 演练（不提交）
 uv run canvas-submit 12345 67890 --files solution.pdf --confirm # 真提交
+uv run canvas-submit 12345 67890 Assignments/CS101/hw1 --latex-log build/solution.log  # 指定要查的编译日志
 ```
+
+演练阶段会自动做三项预检：**PDF 文本层自曝扫描**（`pdftotext`/`gs`，两者都没有会明确说"未覆盖"）、
+**PDF 属性**（`/Creator`、`/Producer` 等）、**LaTeX 日志版面告警**（`Overfull`/`Underfull`/缺字）。
+`--latex-log` 不传时会自动在作业目录及其 `build/` 下找 `*.log`。
 
 不用 uv 也可以用 `python -m scripts.cli doctor` 之类的方式调用，见 docs/setup.md。
 
@@ -115,11 +120,15 @@ canvas-course-toolkit/
 
 ## 可信度
 
-- `uv run --dev pytest` 共 27 项测试，**全部离线**：不联网、不需要令牌、不需要任何 secret，
+- `uv run --dev pytest` 共 36 项测试，**全部离线**：不联网、不需要令牌、不需要任何 secret，
   所以你在自己机器上和 CI 里跑的结果是同一个。
   其中包含一个**假 Canvas 服务器**，真实跑通整条链：
   自动翻页 → 403 回退从页面正文捞附件 → 幂等下载（重跑不重下）→ 清单/要点/索引生成 →
   两步上传并挂 `file_id` 完成提交（并断言 dry-run **绝不**发出提交请求）。
+- **提交前预检**（`canvas-submit` 演练阶段）把三类翻车点摆到眼前：
+  自曝痕（**PDF 会先抽文本层再扫**，不是只扫 `.tex`）、PDF 属性（`/Creator`、`/Producer`）、
+  编译日志版面告警（`Overfull`/`Underfull`/缺字/未定义引用，自动找作业目录及其 `build/` 下的日志）。
+  版面**还要求人眼**：文本抽取看不出越界，工具会打印渲染命令让你逐页看图。详见 [docs/security.md](docs/security.md)。
 - 这套客户端在真实 Canvas 实例上做过**只读验收**：自动翻页拿全课程、
   目录命名与旧版实现逐一比对一致（所以能无缝接管你已有的 `CourseFiles/`，不会另起一套目录）、
   受限课程的 403 回退清单与本地已下载文件数吻合。

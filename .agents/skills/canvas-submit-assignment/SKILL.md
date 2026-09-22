@@ -18,20 +18,33 @@ whenToUse: 当用户说「提交作业」「把这份交上去」「上传到 Ca
    必须含 `online_upload`。只有 `on_paper` / `none` / `external_tool` 时不要硬传，先看作业说明。
 4. **提交件自曝检查（强制）**：确认文件中**不出现**仓库文件名（`canvas_client.py`、`check-answers.py`、
    `scripts/`、`MANIFEST`、`AGENTS.md`）、"脚本复核 / AI / agent / 自动化 / 生成时间"等字样，以及生成日期戳。
-   PDF 要用 `pdftotext solution.pdf - | tail -40` 读一遍末页。
    工作区的 `README.md` 可以写清流水线，提交件必须干净——细节见 `docs/security.md`。
-   `canvas-submit` 会对文本类文件自动扫一遍并打印 ⚠ 命中行。
+   `canvas-submit` 会自动查这三样并打印 ⚠：
+   - **自曝痕**：PDF 会先抽文本层再扫（`pdftotext` 或 `gs`），不是只扫 `.tex` 源码；
+   - **PDF 属性**：`/Creator`、`/Producer` 等（LaTeX 默认写 `XeTeX`），用
+     `\hypersetup{pdfcreator={},pdfproducer={}}` 置空；
+   - **编译日志版面告警**：`Overfull`/`Underfull`/`Missing character`/未定义引用
+     （自动找 `<作业目录>/*.log` 与 `build/*.log`）。
+5. **人眼看版（强制，脚本查不了）**：把 PDF 渲染成图片逐页看一遍——**文本抽取看不出越界**，
+   长 URL 在抽取文本里就是正常换行。至少看首页、带表格/公式页、末页：
+   ```bash
+   gs -q -dNOPAUSE -dBATCH -dNOSAFER -sDEVICE=png16m -r120 \
+      -dFirstPage=1 -dLastPage=1 -sOutputFile=/tmp/p1.png solution.pdf
+   ```
 
 ## 流程
 
 1. **定位作业**：从 `COURSES.md` 拿 `course_id`；从课程 `README.md` 的作业表拿 `assignment_id`
    （或用 `client.assignments(course_id)` 查）。
 2. **演练（默认）**：先不带 `--confirm` 跑一次，逐项核对打印信息——
-   课程、作业名、截止时间、允许的提交方式、当前时间、待提交文件、是否已提交过、自曝扫描结果：
+   课程、作业名、截止时间、允许的提交方式、当前时间、待提交文件、是否已提交过，
+   以及预检三件套（自曝痕 / PDF 属性 / 编译日志版面告警）：
    ```bash
    uv run canvas-submit <course_id> <assignment_id> <作业目录>
    uv run canvas-submit <course_id> <assignment_id> --files solution.pdf
+   uv run canvas-submit <course_id> <assignment_id> <作业目录> --latex-log build/solution.log
    ```
+   `--latex-log` 不传时会自动找作业目录及其 `build/` 下的 `*.log`。
 3. **向用户确认**：把演练结果原样呈现，明确问一句"确认提交吗"。
    **用户没明确同意就不要加 `--confirm`。** 已提交过要特别提示会覆盖。
 4. **执行**：用户确认后加 `--confirm` 提交（脚本内部：上传到个人文件区 → 拿 `file_id` →
