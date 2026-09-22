@@ -1,0 +1,70 @@
+# ===== 本地配置与秘密 —— 绝不提交 =====
+.env
+.env.*
+!.env.example
+*.env
+
+# ===== 你的课程资料与作业：第三方版权内容 + 体积大 + 隐私，不入库 =====
+# 但三个目录的说明文件要保留，这样别人 clone 下来能看懂结构。
+CourseFiles/*
+!CourseFiles/README.md
+Assignments/*
+!Assignments/README.md
+LearningSummaries/*
+!LearningSummaries/README.md
+!LearningSummaries/TEMPLATE.md
+
+# 课程索引由 canvas-summary --index 生成，含你自己的课号与教师信息，默认不入库
+COURSES.md
+# 但 docs/examples/ 下的脱敏样例要入库（注意 gitignore 不支持行尾注释）
+!docs/examples/COURSES.md
+
+# ===== uv / Python =====
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.whl
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ===== macOS / 系统 =====
+.DS_Store
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
+Thumbs.db
+
+# ===== IDE / 编辑器 =====
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.vscode/*
+!.vscode/extensions.json
+!*.code-workspace
+
+# ===== 运行时缓存 / 临时 =====
+*.tmp
+*.part
+*.log
+*.pid
+.pid
+.cache/
+tmp/
+logs/
+~$*
+
+# ===== Agent 本地状态（保留仓库级 skills 目录）=====
+.dsh/*
+!.dsh/skills/
+.agents/*
+!.agents/skills/

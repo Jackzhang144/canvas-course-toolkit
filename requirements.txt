@@ -1,0 +1,16 @@
+# 不用 uv 时的依赖清单（pip 用户）
+#
+#   python3 -m venv .venv
+#   source .venv/bin/activate
+#   pip install -r requirements.txt
+#
+# 然后所有命令把 `uv run canvas ...` 换成 `python -m scripts.cli ...`，
+# 例如：python -m scripts.cli doctor
+#       python -m scripts.course_summary --all
+#       python -m scripts.submit <course_id> <assignment_id> --files solution.pdf
+#
+# 仅用 uv 的话不需要这个文件，uv sync 会按 pyproject.toml 装好。
+requests>=2.31
+
+# 可选：跑离线自测
+pytest>=8.0
